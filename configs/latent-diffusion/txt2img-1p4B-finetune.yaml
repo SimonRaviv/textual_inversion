@@ -94,6 +94,8 @@ data:
         set: train
         per_image_tokens: false
         repeats: 100
+        label:
+        prompts_type:
     validation:
       target: ldm.data.personalized.PersonalizedBase
       params:
@@ -101,6 +103,8 @@ data:
         set: val
         per_image_tokens: false
         repeats: 10
+        label:
+        prompts_type:
 
 lightning:
   modelcheckpoint:
