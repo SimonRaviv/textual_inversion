@@ -1,7 +1,14 @@
-import argparse, os, sys, datetime, glob, importlib, csv
+import argparse
+import os
+import sys
+import datetime
+import glob
+import importlib
+import csv
 import numpy as np
 import time
 import torch
+import wandb
 
 import torchvision
 import pytorch_lightning as pl
@@ -17,9 +24,9 @@ from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
 from pytorch_lightning.utilities.distributed import rank_zero_only
 from pytorch_lightning.utilities import rank_zero_info
-
 from ldm.data.base import Txt2ImgIterableBaseDataset
 from ldm.util import instantiate_from_config
+
 
 def load_model_from_config(config, ckpt, verbose=False):
     print(f"Loading model from {ckpt}")
@@ -36,6 +43,7 @@ def load_model_from_config(config, ckpt, verbose=False):
         print(u)
 
     return model
+
 
 def get_parser(**parser_kwargs):
     def str2bool(v):
@@ -168,6 +176,18 @@ def get_parser(**parser_kwargs):
         type=str, 
         help="Word to use as source for initial token embedding")
 
+    parser.add_argument("--wandb_project_name",
+                        type=str,
+                        help="W&B project name")
+
+    parser.add_argument("--num_input_images",
+                        type=int,
+                        help="Number of input samples to log")
+
+    parser.add_argument("--ext_exp_id",
+                        type=int,
+                        help="External experiment ID")
+
     return parser
 
 
@@ -229,6 +249,7 @@ class DataModuleFromConfig(pl.LightningDataModule):
             self.dataset_configs["predict"] = predict
             self.predict_dataloader = self._predict_dataloader
         self.wrap = wrap
+        self.save_hyperparameters()
 
     def prepare_data(self):
         for data_cfg in self.dataset_configs.values():
@@ -344,6 +365,7 @@ class ImageLogger(Callback):
         self.max_images = max_images
         self.logger_log_images = {
             pl.loggers.TestTubeLogger: self._testtube,
+            pl.loggers.WandbLogger: self._wandb,
         }
         self.log_steps = [2 ** n for n in range(int(np.log2(self.batch_freq)) + 1)]
         if not increase_log_steps:
@@ -364,6 +386,14 @@ class ImageLogger(Callback):
             pl_module.logger.experiment.add_image(
                 tag, grid,
                 global_step=pl_module.global_step)
+
+    @rank_zero_only
+    def _wandb(self, pl_module, images, batch_idx, split):
+        for k in images:
+            grid = torchvision.utils.make_grid(images[k])
+            grid = (grid + 1.0) / 2.0  # -1,1 -> 0,1; c,h,w
+            tag = f"{split}/{k}"
+            pl_module.logger.log_image(key=tag, images=[grid])
 
     @rank_zero_only
     def log_local(self, save_dir, split, images,
@@ -621,10 +651,12 @@ if __name__ == "__main__":
             "wandb": {
                 "target": "pytorch_lightning.loggers.WandbLogger",
                 "params": {
-                    "name": nowname,
                     "save_dir": logdir,
+                    "name": opt.name,
+                    "project": opt.wandb_project_name,
                     "offline": opt.debug,
                     "id": nowname,
+                    "log_model" : "all"
                 }
             },
             "testtube": {
@@ -635,7 +667,7 @@ if __name__ == "__main__":
                 }
             },
         }
-        default_logger_cfg = default_logger_cfgs["testtube"]
+        default_logger_cfg = default_logger_cfgs["wandb"]
         if "logger" in lightning_config:
             logger_cfg = lightning_config.logger
         else:
@@ -662,7 +694,7 @@ if __name__ == "__main__":
         if "modelcheckpoint" in lightning_config:
             modelckpt_cfg = lightning_config.modelcheckpoint
         else:
-            modelckpt_cfg =  OmegaConf.create()
+            modelckpt_cfg = OmegaConf.create()
         modelckpt_cfg = OmegaConf.merge(default_modelckpt_cfg, modelckpt_cfg)
         print(f"Merged modelckpt-cfg: \n{modelckpt_cfg}")
         if version.parse(pl.__version__) < version.parse('1.4.0'):
@@ -800,12 +832,20 @@ if __name__ == "__main__":
         # run
         if opt.train:
             try:
+                # Log extra parameters/files parameters:
+                embeddings_artifact = wandb.Artifact(name=opt.name, type='embedding')
+                trainer.logger.experiment.config.update(lightning_config.trainer)
+                extra_log_parameters = {"num_input_images" : opt.num_input_images, "experiment_id": opt.ext_exp_id}
+                trainer.logger.experiment.config.update(extra_log_parameters)
+                for config_file in opt.base:
+                    wandb.save(config_file)
+
                 trainer.fit(model, data)
             except Exception:
                 melk()
                 raise
-        if not opt.no_test and not trainer.interrupted:
-            trainer.test(model, data)
+        # if not opt.no_test and not trainer.interrupted:
+        #     trainer.test(model, data)
     except Exception:
         if opt.debug and trainer.global_rank == 0:
             try:
@@ -815,6 +855,9 @@ if __name__ == "__main__":
             debugger.post_mortem()
         raise
     finally:
+        embeddings_artifact.add_dir(ckptdir)
+        wandb.log_artifact(embeddings_artifact)
+
         # move newly created debug project to debug_runs
         if opt.debug and not opt.resume and trainer.global_rank == 0:
             dst, name = os.path.split(logdir)
