@@ -1,11 +1,13 @@
 import os
 import numpy as np
 import PIL
+import random
+import json
+
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-import random
 
 imagenet_templates_smallest = [
     'a photo of a {}',
@@ -563,6 +565,7 @@ class PersonalizedBase(Dataset):
                  coarse_class_text=None,
                  label=None,
                  prompts_type=None,
+                 prompts_json_file=None,
                  ):
 
         self.data_root = data_root
@@ -582,6 +585,7 @@ class PersonalizedBase(Dataset):
         self.coarse_class_text = coarse_class_text
         self.label = label
         self.prompts_type = prompts_type
+        self.prompts_json_file = prompts_json_file
         if per_image_tokens:
             assert self.num_images < len(per_img_token_list), f"Can't use per-image tokens when the training set contains more than {len(per_img_token_list)} tokens. To enable larger sets, add more tokens to 'per_img_token_list'."
 
@@ -611,19 +615,27 @@ class PersonalizedBase(Dataset):
             placeholder_string = f"{self.coarse_class_text} {placeholder_string}"
 
         if "clip_chatgpt" == self.prompts_type or "chatgpt_clip" == self.prompts_type:
-            self.label = self.label.replace("clip_chatgpt_", "")
-            self.label = self.label.replace("chatgpt_clip_", "")
+            if self.prompts_json_file is not None:
+                label_personalized_templates = json.load(open(self.prompts_json_file, 'r'))
+                label = self.label.split("_")[1]
+            elif label_personalized_templates is None:
+                label = self.label.replace("clip_chatgpt_", "")
+                label = self.label.replace("chatgpt_clip_", "")
+
             label_personalized_templates = \
-                chatgpt_templates[self.label] + \
-                chatgpt_templates[self.label] + \
-                chatgpt_templates[self.label] + \
+                label_personalized_templates[label] + \
+                label_personalized_templates[label] + \
+                label_personalized_templates[label] + \
                 imagenet_templates_small
             np.random.shuffle(label_personalized_templates)
             label_personalized_templates = list(label_personalized_templates)
         elif "clip" == self.prompts_type:
             label_personalized_templates = imagenet_templates_small
         elif "chatgpt" == self.prompts_type:
-            label_personalized_templates = chatgpt_templates[self.label]
+            if self.prompts_json_file is not None:
+                label_personalized_templates = json.load(open(self.prompts_json_file, 'r'))
+            else:
+                label_personalized_templates = chatgpt_templates[self.label]
         else:
             raise Exception(f"Prompts type {self.prompts_type} not supported")
 
