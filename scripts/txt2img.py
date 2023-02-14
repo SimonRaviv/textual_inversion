@@ -1,6 +1,7 @@
 import argparse, os, sys, glob
 import torch
 import numpy as np
+import wandb
 from omegaconf import OmegaConf
 from PIL import Image
 from tqdm import tqdm, trange
@@ -10,6 +11,9 @@ from torchvision.utils import make_grid
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.plms import PLMSSampler
+from pytorch_lightning.loggers import WandbLogger
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def load_model_from_config(config, ckpt, verbose=False):
     print(f"Loading model from {ckpt}")
@@ -112,6 +116,22 @@ if __name__ == "__main__":
         type=str, 
         help="Path to a pre-trained embedding manager checkpoint")
 
+    parser.add_argument("--wandb_project_name",
+                        type=str,
+                        help="W&B project name")
+
+    parser.add_argument("--ext_exp_id",
+                        type=int,
+                        help="External experiment ID")
+
+    parser.add_argument("--label_index",
+                        type=str,
+                        help="Label index")
+
+    parser.add_argument("--label_name",
+                        type=str,
+                        help="Label name")
+
     opt = parser.parse_args()
 
 
@@ -137,6 +157,16 @@ if __name__ == "__main__":
     os.makedirs(sample_path, exist_ok=True)
     base_count = len(os.listdir(sample_path))
 
+    # wandb.init(project=opt.wandb_project_name, dir=outpath)
+    generation_name = f"{opt.label_name}({opt.label_index})"
+    logger = WandbLogger(
+        project=opt.wandb_project_name,
+        name=generation_name, save_dir=outpath)
+    cli_vars = opt.__dict__
+    cli_vars["experiment_id"] = opt.ext_exp_id
+    cli_vars.pop("ext_exp_id")
+    logger.experiment.config.update(cli_vars)
+
     all_samples=list()
     with torch.no_grad():
         with model.ema_scope():
@@ -157,11 +187,20 @@ if __name__ == "__main__":
 
                 x_samples_ddim = model.decode_first_stage(samples_ddim)
                 x_samples_ddim = torch.clamp((x_samples_ddim+1.0)/2.0, min=0.0, max=1.0)
-
+                images_paths = []
+                images_captions = []
                 for x_sample in x_samples_ddim:
                     x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
-                    Image.fromarray(x_sample.astype(np.uint8)).save(os.path.join(sample_path, f"{base_count:04}.jpg"))
+                    image_name = f"{base_count:04}.jpg"
+                    image_path = os.path.join(sample_path, image_name)
+                    Image.fromarray(x_sample.astype(np.uint8)).save(image_path)
+                    tag = f"{base_count:04}"
+                    images_paths.append(image_path)
+                    images_captions.append(tag)
                     base_count += 1
+                logger.log_image(
+                    key=f"{opt.label_name}({opt.label_index}) - '{opt.prompt}'",
+                    images=images_paths, caption=images_captions)
                 all_samples.append(x_samples_ddim)
 
 
