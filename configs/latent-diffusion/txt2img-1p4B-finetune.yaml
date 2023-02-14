@@ -9,7 +9,7 @@ model:
     timesteps: 1000
     first_stage_key: image
     cond_stage_key: caption
-    image_size: 32
+    image_size: 256
     channels: 4
     cond_stage_trainable: true
     conditioning_key: crossattn
@@ -30,7 +30,7 @@ model:
     unet_config:
       target: ldm.modules.diffusionmodules.openaimodel.UNetModel
       params:
-        image_size: 32
+        image_size: 256
         in_channels: 4
         out_channels: 4
         model_channels: 320
@@ -80,11 +80,10 @@ model:
         n_embed: 1280
         n_layer: 32
 
-
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 4
+    batch_size: 5
     num_workers: 2
     wrap: false
     train:
@@ -96,6 +95,7 @@ data:
         repeats: 100
         label:
         prompts_type:
+        prompts_json_file:
     validation:
       target: ldm.data.personalized.PersonalizedBase
       params:
@@ -105,6 +105,7 @@ data:
         repeats: 10
         label:
         prompts_type:
+        prompts_json_file:
 
 lightning:
   modelcheckpoint:
@@ -120,4 +121,5 @@ lightning:
 
   trainer:
     benchmark: True
-    max_steps: 6100
+    max_steps: 2
+    accumulate_grad_batches: 6100
