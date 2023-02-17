@@ -6,19 +6,29 @@ from transformers import CLIPTokenizer
 from functools import partial
 
 DEFAULT_PLACEHOLDER_TOKEN = ["*"]
-
+LOG_FILE = "/tmp/tokenizer.log"
 PROGRESSIVE_SCALE = 2000
 
 def get_clip_token_for_string(tokenizer, string):
     batch_encoding = tokenizer(string, truncation=True, max_length=77, return_length=True,
                                return_overflowing_tokens=False, padding="max_length", return_tensors="pt")
     tokens = batch_encoding["input_ids"]
+
+    if torch.count_nonzero(tokens - 49407) != 2:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"{string}\n")
+
     assert torch.count_nonzero(tokens - 49407) == 2, f"String '{string}' maps to more than a single token. Please use another string"
 
     return tokens[0, 1]
 
 def get_bert_token_for_string(tokenizer, string):
     token = tokenizer(string)
+
+    if torch.count_nonzero(token) != 3:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"{string}\n")
+
     assert torch.count_nonzero(token) == 3, f"String '{string}' maps to more than a single token. Please use another string"
 
     token = token[0, 1]
