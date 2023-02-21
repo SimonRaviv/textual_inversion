@@ -157,8 +157,9 @@ if __name__ == "__main__":
     os.makedirs(sample_path, exist_ok=True)
     base_count = len(os.listdir(sample_path))
 
-    # wandb.init(project=opt.wandb_project_name, dir=outpath)
     generation_name = f"{opt.label_name}({opt.label_index})"
+
+    os.makedirs(os.path.join(outpath, "wandb"), exist_ok=True)
     logger = WandbLogger(
         project=opt.wandb_project_name,
         name=generation_name, save_dir=outpath)

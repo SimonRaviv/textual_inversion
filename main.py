@@ -647,6 +647,7 @@ if __name__ == "__main__":
         trainer_kwargs = dict()
 
         # default logger configs
+        os.makedirs(os.path.join(logdir, "wandb"), exist_ok=True)
         default_logger_cfgs = {
             "wandb": {
                 "target": "pytorch_lightning.loggers.WandbLogger",
