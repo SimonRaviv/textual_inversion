@@ -116,6 +116,12 @@ if __name__ == "__main__":
         type=str, 
         help="Path to a pre-trained embedding manager checkpoint")
 
+    parser.add_argument(
+        "--config_path",
+        type=str,
+        default="configs/latent-diffusion/txt2img-1p4B-eval_with_tokens.yaml",
+        help="Path to the config file used to train the model")
+
     parser.add_argument("--wandb_project_name",
                         type=str,
                         help="W&B project name")
@@ -135,7 +141,7 @@ if __name__ == "__main__":
     opt = parser.parse_args()
 
 
-    config = OmegaConf.load("configs/latent-diffusion/txt2img-1p4B-eval_with_tokens.yaml")  # TODO: Optionally download from same location as ckpt and chnage this logic
+    config = OmegaConf.load(opt.config_path)  # TODO: Optionally download from same location as ckpt and chnage this logic
     model = load_model_from_config(config, opt.ckpt_path)  # TODO: check path
     model.embedding_manager.load(opt.embedding_path)
 

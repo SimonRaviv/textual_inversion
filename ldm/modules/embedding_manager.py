@@ -5,30 +5,28 @@ from ldm.data.personalized import per_img_token_list
 from transformers import CLIPTokenizer
 from functools import partial
 
+import open_clip
+
 DEFAULT_PLACEHOLDER_TOKEN = ["*"]
-LOG_FILE = "/tmp/tokenizer.log"
+
 PROGRESSIVE_SCALE = 2000
 
 def get_clip_token_for_string(tokenizer, string):
     batch_encoding = tokenizer(string, truncation=True, max_length=77, return_length=True,
                                return_overflowing_tokens=False, padding="max_length", return_tensors="pt")
     tokens = batch_encoding["input_ids"]
-
-    if torch.count_nonzero(tokens - 49407) != 2:
-        with open(LOG_FILE, "a") as f:
-            f.write(f"{string}\n")
-
     assert torch.count_nonzero(tokens - 49407) == 2, f"String '{string}' maps to more than a single token. Please use another string"
+
+    return tokens[0, 1]
+
+def get_oclip_token_for_string(tokenizer, string):
+    tokens = tokenizer(string)
+    assert (tokens == 49407).nonzero(as_tuple=True)[1] == 2, f"String '{string}' maps to more than a single token. Please use another string"
 
     return tokens[0, 1]
 
 def get_bert_token_for_string(tokenizer, string):
     token = tokenizer(string)
-
-    if torch.count_nonzero(token) != 3:
-        with open(LOG_FILE, "a") as f:
-            f.write(f"{string}\n")
-
     assert torch.count_nonzero(token) == 3, f"String '{string}' maps to more than a single token. Please use another string"
 
     token = token[0, 1]
@@ -36,7 +34,7 @@ def get_bert_token_for_string(tokenizer, string):
     return token
 
 def get_embedding_for_clip_token(embedder, token):
-    return embedder(token.unsqueeze(0))[0, 0]
+    return embedder(token.unsqueeze(0))[0]
 
 
 class EmbeddingManager(nn.Module):
@@ -68,6 +66,11 @@ class EmbeddingManager(nn.Module):
             get_token_for_string = partial(get_clip_token_for_string, embedder.tokenizer)
             get_embedding_for_tkn = partial(get_embedding_for_clip_token, embedder.transformer.text_model.embeddings)
             token_dim = 768
+        elif hasattr(embedder, "is_oclip"):
+            self.is_clip = True
+            get_token_for_string = partial(get_oclip_token_for_string, open_clip.tokenize)
+            get_embedding_for_tkn = partial(get_embedding_for_clip_token, embedder.model.token_embedding)
+            token_dim = 1024
         else: # using LDM's BERT encoder
             self.is_clip = False
             get_token_for_string = partial(get_bert_token_for_string, embedder.tknz_fn)
